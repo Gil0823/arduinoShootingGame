@@ -6,18 +6,18 @@ using namespace std;
 const String GAMEMODE0 = "gamemode0";
 const String GAMEMODE1 = "gamemode1";
 const String GAMESTOP = "gamestop";
-const String GAMETEST = "gamestest";
+const String STANDALL = "standall";
 const String SHOWALLINFO = "showallinfo";
 const int timeLimit = 10;  // 제한시간(초)
-int mPins[NUM_T] = {A0};
-int sPins[NUM_T] = {4};
-int scores[NUM_T] = {100};
-int zeros[NUM_T] = {160};
-int stands[NUM_T] = {50};
+const int mPins[] = {3};
+const int sPins[] = {A0};
+const int scores[] = {100};
+const int zeros[] = {0};
+const int stands[] = {160, };
 
 typedef class transmisson {
     private:
-        String * obj;
+        String * buf;
         bool recieveCheck;
         int check;
         int count;
@@ -27,7 +27,7 @@ typedef class transmisson {
             check = 0;
             count = 0;
         }
-        void clearObj();
+        void clearBuf();
         String getCommend();
         bool recieveProcess_waitting();
         bool recieveProcess_once();
@@ -35,13 +35,13 @@ typedef class transmisson {
 } transmisson;
 
 bool transmisson::recieveProcess_waitting() {  // 명령 대기 (무한대기 버전)
-    String buf;
+    String buff;
     
     for(this->check = 0, this->count = 0, this->recieveCheck = false;;) {
         if(Serial.available()) {
             this->recieveCheck = true;
             char c = Serial.read();
-            buf += c;
+            buff += c;
             this->check++;
             delay(10);  // Serial이 씹힘
         }
@@ -49,53 +49,53 @@ bool transmisson::recieveProcess_waitting() {  // 명령 대기 (무한대기 �
             this->count++;
         }
         if(this->check != this->count) {
-           obj = new String;
-           *obj = buf;
-           Serial.println(*(this->obj));
-           return true;
+          buf = new String;
+          *(this->buf) = buff;
+          Serial.println(*(this->buf));
+          return true;
         }
     }
 }
 
 bool transmisson::recieveProcess_once() {  // 명령 대기 (확인버전)(스레드점유X)
-      String buf;
+    String buff;
   
-      if(Serial.available()) {
-          for(this->check = 0, this->count = 0, this->recieveCheck = false;;) {
-              if(Serial.available()) {
-                  this->recieveCheck = true;
-                  char c = Serial.read();
-                  buf += c;
-                  this->check++;
-                  delay(10);  // Serial이 씹힘
-              }
-              if(this->recieveCheck) {
-                  this->count++;
-              }
-              if(this->check != this->count) {
-                  obj = new String;
-                  *obj = buf; 
-                  Serial.println(*(this->obj));
-                  return true;
-              }
-          } 
-      }
-      return false; 
+  if(Serial.available()) {
+    for(this->check = 0, this->count = 0, this->recieveCheck = false;;) {
+            if(Serial.available()) {
+                this->recieveCheck = true;
+                char c = Serial.read();
+                buff += c;
+                this->check++;
+                delay(10);  // Serial이 씹힘
+            }
+            if(this->recieveCheck) {
+                this->count++;
+            }
+            if(this->check != this->count) {
+                this->buf = new String;
+                *(this->buf) = buff; 
+                Serial.println(*(this->buf));
+                return true;
+            }
+        } 
+    }
+    return false; 
 }
 
-void transmisson::clearObj() {
-  delete obj;
+void transmisson::clearBuf() {
+  delete buf;
 }
 
 String transmisson::getCommend() {
-  return *(this->obj);
+  return *(this->buf);
 }
 
 bool transmisson::compare(String parm, String tar) {
   for(int i = 0; i < this->check; i++) {
-    if(parm[i] != tar[i]) {
-      return false;
-    }
+      if(parm[i] != tar[i]) {
+        return false;
+      }
   }
   return true;
 }
@@ -109,63 +109,78 @@ transmisson serial;
 typedef class target {
   private:
     int mPin;  // 해당 과녁에 구성된 모터 핀 
-    int sPin;  // 해당 과녁에 구성된 센서 핀  
+      int sPin;  // 해당 과녁에 구성된 센서 핀  
     int score;  // 해당 과녁의 점수
-    int zero;  // 과녁 영점계수 (다운상태) 
-    int stand;  // 과녁 영점계수 (업상태) 
-    unsigned int downTime;  // 피격시점 시간저장 변수  
-    unsigned int downTime_prev;  // 이전 피격시점 시간저장 변수  
-    bool stat;  // 과녁 상태  
-    Servo moter;
+      int zero;  // 과녁 영점계수 (다운상태) 
+      int stand;  // 과녁 영점계수 (업상태)
+      unsigned int downTime;  // 피격시점 시간저장 변수  
+      unsigned int downTime_prev;  // 이전 피격시점 시간저장 변수  
+      bool stat;  // 과녁 상태  
+      Servo moter;
   public:
-    target() {
-      mPin = 0;
-      sPin = 0;
-      score = 0;
-      zero = 0;
-      stand = 0;
-    }
-    target(int p1, int p2, int input1, int input2, int input3) {
-      mPin = p1;
-      sPin = p2;
-      score = input1;
-      zero = input2;
-      stand = input3;
-      moter.attach(mPin);
-      moter.write(zero);
-      stat = false;
-    }
-    void showInfo();
-    void standup();
-    void standown();
-    void moterSleep();
-    void moterWake();
-    void updateStatus();
-    void recordDownTime(unsigned int t);  // 피격 시점 기억
-    void recordPreviousDownTime();  // 이전 피격 시점 기억  
-    int getDownTime();
-    int getPreviousDownTime();
-    int getScore();
-    bool getStat();
-    bool checking();  // 센서 감지 여부 
+      target() {
+        mPin = 0;
+        sPin = 0;
+        score = 0;
+        zero = 0;
+        stand = 0;
+      }
+      target(int p1, int p2, int input1, int input2, int input3) {
+        mPin = p1;
+        sPin = p2;
+        score = input1;
+        zero = input2;
+        stand = input3;
+        moter.attach(mPin);
+        moter.write(zero);
+        stat = false;
+      }
+      void showInfo();
+      void standup();
+      void standown();
+      void moterActivate_stand();
+      void moterActivate_zero();
+      void moterSleep();
+      void moterWake();
+      void updateStatus();
+      void recordDownTime(unsigned int t);  // 피격 시점 기억
+      void recordPreviousDownTime();  // 이전 피격 시점 기억  
+      int getDownTime();
+      int getPreviousDownTime();
+      int getScore();
+      bool getStat();
+      bool checking();  // 센서 감지 여부 
 } target;
 
 void target::showInfo() {
+  if(this->mPin > 13) {
+    Serial.print("Attached moter port : A"); Serial.println((this->mPin)-13);
+  }
+  else {
+    Serial.print("Attached moter port : "); Serial.println(this->mPin);
+  }
   Serial.print("Attached moter port : "); Serial.println(this->mPin);
   Serial.print("Attached senser port : "); Serial.println(this->sPin);
   Serial.print("Registered score : "); Serial.println(this->score);
-  Serial.print("status of target : "); Serial.println(this->stat);
 }
 
 void target::standup() {
     this->moter.write(this->stand);
-    delay(500);
+    delay(250);
     this->moter.write(this->zero);
-    delay(500);
+    delay(250);
 } 
 
 void target::standown() {
   
+}
+
+void target::moterActivate_stand() {
+  this->moter.write(this->stand);
+}
+
+void target::moterActivate_zero() {
+  this->moter.write(this->zero);
 }
 
 void target::moterSleep() {
@@ -178,10 +193,10 @@ void target::moterWake() {
 
 void target::updateStatus() {
   if(checking()) {
-    this->stat = false;
+      this->stat = false;
   }
   else {
-    this->stat = !(this->stat);
+      this->stat = !(this->stat);
   }
 }
 
@@ -202,7 +217,7 @@ int target::getPreviousDownTime() {
 }
 
 int target::getScore() {
-	return this->score;
+  return this->score;
 }
 
 bool target::getStat() {
@@ -211,10 +226,10 @@ bool target::getStat() {
 
 bool target::checking() {
   if(digitalRead(this->sPin) == LOW) {
-    return true;
+      return true;
   }
   else {
-    return false;
+      return false;
   }
 }
 
@@ -226,31 +241,34 @@ bool target::checking() {
 
 typedef class gameHandler {
     private:
-    	target * objArr[10];  // 과녁객체
-    	unsigned int startTime;
-    	int index;  // 과녁 색인   
+      target * objArr[10];  // 과녁객체
+      unsigned int startTime;
+      int index;  // 과녁 색인   
     public:
-    	gameHandler() {
-        	for(int i = 0; i < 10; i++) {
-          	objArr[i] = NULL;
-        	}
-    	}
-    	void showAllInfo();
-    	void addTarget();
-    	void addTarget(int n1, int n2, int n3, int n4, int n5);
-    	void delTarget();
-    	void gamemode0();
-    	void gamemode1();
-    	void moterAllSleep();
-    	void moterAllWake();
-    	bool checkTimeOver();
-    	bool checkAllDead();
-    	bool checkStopCommend();
+      gameHandler() {
+          for(int i = 0; i < 10; i++) {
+              objArr[i] = NULL;
+          }
+      }
+      void showAllInfo();
+      void addTarget();
+      void addTarget(int n1, int n2, int n3, int n4, int n5);
+      void delTarget();
+      void gamemode0();
+      void gamemode1();
+      void gamemode2();
+      void moterAllSleep();
+      void moterAllWake();
+      void standAll();
+      bool checkDownTerm();
+      bool checkTimeOver();
+      bool checkAllDown();
+      bool checkStopCommend();
 } gameHandler;
 
 void gameHandler::showAllInfo() {
   for(int i = 0; i < index; i++) {
-    objArr[i]->showInfo();
+      objArr[i]->showInfo();
   }
 }
 
@@ -280,7 +298,7 @@ void gameHandler::gamemode0() {
             
             if(objArr[i]->checking()) {  // 피격여부 확인  
                 if(objArr[i]->getStat()) {
-                    Serial.print(i+1); Serial.println("번째 피격해서");
+                  Serial.print(i+1); Serial.println("번째 피격해서");
                     Serial.print(scores[i]); Serial.println("점 흭득!");
                 }
                 objArr[i]->updateStatus();
@@ -295,9 +313,9 @@ void gameHandler::gamemode0() {
 }
 
 void gameHandler::gamemode1() {
-  	static int i = 0;
-	  int result = 0;
-	  this->startTime = millis();
+    static int i = 0;
+  int result = 0;
+  this->startTime = millis();
     
     for(;;) {
         if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
@@ -327,16 +345,73 @@ void gameHandler::gamemode1() {
     Serial.print("최종점수는 "); Serial.print(result); Serial.println("점!");
 }
 
+void gameHandler::gamemode2() {
+  static int i = 0;
+  static int randomNumTarget = 0;
+  static int randomIndex[NUM_T] = {0, };
+  static int randomTerm[NUM_T] = {0, };
+  static int result = 0;
+  unsigned int c = 0;
+  unsigned int p = 0;
+    
+    for(;;) {
+        if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
+          break;
+        }
+        if(checkTimeOver() == true) {
+           break;
+        }
+        randomNumTarget = random(1, index+1);
+        for(int i = 0; i < randomNumTarget; i++) {
+          randomIndex[i] = random(0, index);
+          randomTerm[i] = random(250, 500);
+      }
+      for(;;) {
+        c = millis();
+      
+        if(c - p < 1500) {
+            break;
+        }
+        for(int i = 0; i < randomNumTarget; i++) {
+            if(c - p >= randomTerm[i]) {
+              objArr[randomIndex[i]]->standown();
+              randomIndex[i] = 5;  // 모터 뻘짓 방지용 초기화  
+            }
+            else if(objArr[randomIndex[i]]->checking()) {
+              objArr[randomIndex[i]]->standup();
+              result += objArr[randomIndex[i]]->getScore();
+          }
+        }
+      }
+    }
+    Serial.print("최종점수는 "); Serial.print(result); Serial.println("점!");
+    result = 0;
+}
+
 void gameHandler::moterAllSleep() {
-    for(int i = 0; i < this->index; i++) {
-    	objArr[i]->moterSleep();
+    for(int i = 0; i < index; i++) {
+      objArr[i]->moterSleep();
     }
 }
 
 void gameHandler::moterAllWake() {
-    for(int i = 0; i < this->index; i++) {
-    	objArr[i]->moterWake();
+    for(int i = 0; i < index; i++) {
+      objArr[i]->moterWake();
     }
+}
+
+void gameHandler::standAll() {
+    for(int i = 0; i < index; i++) {
+        objArr[i]->moterActivate_stand();
+    }
+    delay(500);
+    for(int i = 0; i < index; i++) {
+        objArr[i]->moterActivate_zero();
+    }
+}
+
+bool gameHandler::checkDownTerm() {
+  
 }
 
 bool gameHandler::checkTimeOver() {
@@ -358,7 +433,7 @@ bool gameHandler::checkTimeOver() {
     }
 }
 
-bool gameHandler::checkAllDead() {
+bool gameHandler::checkAllDown() {
     static int i = 0;
     static int count = 0;
   
@@ -368,11 +443,11 @@ bool gameHandler::checkAllDead() {
         }   
     }
     if(count >= index) {  // 다운된 과녁수가 NUM_T개이상인지 확인 ( 오류로 NUM_T개가 넘을시를 위해 조건을 이상으로 설정함 ) 
-       count = 0;  // 다음 턴을 위해 카운트수를 초기화  
-       return true;
+      count = 0;  // 다음 턴을 위해 카운트수를 초기화  
+      return true;
     }
     else {
-        return false;
+      return false;
     }
 }
 
@@ -383,7 +458,7 @@ bool gameHandler::checkStopCommend() {
       recieve = serial.getCommend();
 
       if(serial.compare(recieve, GAMESTOP)) {
-        return true;
+          return true;
       }
     }
     else {  // 이 함수는 명령이 수신됐는지 한번만 확인하면 돼므로 한번만 확인하고 그냥 넘어감 
@@ -401,7 +476,7 @@ void setup() {
     Serial.begin(9600);
     
     for(int i = 0; i < NUM_T; i++) {
-        handler.addTarget();
+      handler.addTarget();
     }
     handler.moterAllSleep();
     handler.showAllInfo();
@@ -424,21 +499,19 @@ void loop() {
             Serial.println("게임모드1");
             handler.gamemode1();
         }
-        else if(serial.compare(obj, GAMESTOP)) {
-            Serial.println("게임중지");
-        }
-        else if(serial.compare(obj, GAMETEST)) {
-            Serial.println("워밍업");
+        else if(serial.compare(obj, STANDALL)) {
+            Serial.println("모든 과녁 스탠바이");
+            handler.standAll();
         }
         else if(serial.compare(obj, SHOWALLINFO)) {
             Serial.println("모든 과녁 정보");
             handler.showAllInfo();
         }
         else {
-            ;
+            Serial.println("리스트에 없는 명령어 입니다");
         }
         handler.moterAllSleep();  // 모든 모터 등록 해제(절전모드)
-        serial.clearObj();
+        serial.clearBuf();
     }
     delay(100);
 }
