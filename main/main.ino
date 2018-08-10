@@ -1,6 +1,6 @@
 #include <SoftwareSerial.h>
 #include <Servo.h>              
-#define NUM_T 2  // 과녁수 지정
+#define NUM_T 3  // 과녁수 지정
 #define STANDTERM 3000  // 과녁 기립쿨타임 
 using namespace std;
 
@@ -29,16 +29,16 @@ const String MONITOR = "monitor";
 const String CLEAR = "cls";
 const String MANUAL = "manual";
 const int timeLimit = 10;  // 제한시간(초)
-const int bPin = 13;
-const int mgPins[] = {3, 6};
-const int mwPins[] = {5, 9};
-const int sPins[] = {A1, A2};
-const int lPins[] = {10, 11};
-const int scores[] = {10, 60};
-const int zeros[] = {55, 40};
-const int stands[] = {160, 160};
-const int waits[] = {0, 10};
-const int downs[] = {30, 90};
+const int bPin = A4;
+const int mgPins[] = {3, 5, 6};
+const int mwPins[] = {9, 10, 11};
+const int sPins[] = {A2, A1, A0};
+const int lPins[] = {4, 7, 8};
+const int scores[] = {10, 30, 50};
+const int zeros[] = {0, 0, 0};
+const int stands[] = {105, 150, 105};
+const int waits[] = {0, 10, 10};
+const int downs[] = {30, 90, 30};
 
 typedef class transmisson {
     private:
@@ -46,95 +46,156 @@ typedef class transmisson {
         bool recieveCheck;
         int check;
         int count;
+        SoftwareSerial * sender;
     public:
         transmisson() {
+            sender = NULL;
             recieveCheck = false;
             check = 0;
             count = 0;
         }
+        transmisson(SoftwareSerial * serial) {
+            sender = serial;
+            recieveCheck = false;
+            check = 0;
+            count = 0;
+            sender->begin(9600);
+        }
         void clearBuf();
-        void clear();
+        void clearMonitor();
         String getCommend();
+        bool process_hardware();
+        bool process_software();
         bool recieveProcess_waitting();
         bool recieveProcess_once();
         bool compare(String parm, String tar);
 } transmisson;
 
-bool transmisson::recieveProcess_waitting() {  // 명령 대기 (무한대기 버전)
+bool transmisson::process_hardware() {
     String buff;
-    
-    for(this->check = 0, this->count = 0, this->recieveCheck = false;;) {
+
+    for(;;) {
         if(Serial.available()) {
-            this->recieveCheck = true;
             char c = Serial.read();
+
+            this->recieveCheck = true;
             buff += c;
             this->check++;
             delay(10);  // Serial이 씹힘
         }
         if(this->recieveCheck) {
             this->count++;
-        }
-        if(this->check != this->count) {
-            buf = new String;
-            *(this->buf) = buff;
-            Serial.println(*(this->buf));
-            return true;
-        }
-    }
-}
-
-bool transmisson::recieveProcess_once() {  // 명령 대기 (확인버전)(스레드점유X)
-    String buff;
-  
-  if(Serial.available()) {
-    for(this->check = 0, this->count = 0, this->recieveCheck = false;;) {
-            if(Serial.available()) {
-                this->recieveCheck = true;
-                char c = Serial.read();
-                buff += c;
-                this->check++;
-                delay(10);  // Serial이 씹힘
-            }
-            if(this->recieveCheck) {
-                this->count++;
-            }
             if(this->check != this->count) {
                 this->buf = new String;
-                *(this->buf) = buff; 
+            
+                *(this->buf) = buff;
+                this->recieveCheck = false;
+                this->count = 0;
                 Serial.println(*(this->buf));
                 return true;
             }
         } 
+        else if(!(this->recieveCheck)) {
+            return false;
+        }
     }
-    return false; 
+}
+
+bool transmisson::process_software() {
+    String buff;
+
+    for(;;) {
+        if(sender->available()) {
+            char c = sender->read();
+
+            this->recieveCheck = true;
+            buff += c;
+            this->check++;
+            delay(10);  // Serial이 씹힘
+        }
+        if(this->recieveCheck) {
+            this->count++;
+            if(this->check != this->count) {
+                this->buf = new String;
+            
+                *(this->buf) = buff;
+                this->recieveCheck = false;
+                this->check -= 2;  // 블루투스 통신시에 생기는 쓰레기 버퍼 수는 제외
+                this->count = 0;
+                Serial.println(*(this->buf));
+                return true;
+            }
+        } 
+        else if(!(this->recieveCheck)) {
+            return false;
+        }
+    }
+}
+
+bool transmisson::recieveProcess_waitting() {  // 명령 대기 (무한대기 버전)
+    for(this->check = 0, this->count = 0;;) {
+        if(sender == NULL) {
+            if(process_hardware()) {
+                return true;
+            }
+        }
+        else {
+            if(process_software()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool transmisson::recieveProcess_once() {  // 명령 대기 (확인버전)(스레드점유X)
+    this->check = 0;
+  
+    if(sender == NULL) {
+        if(Serial.available()) {
+            if(process_hardware()) {
+                return true;
+            }
+        }
+    }
+    else {
+        if(sender->available()) {
+            if(process_software()) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 void transmisson::clearBuf() {
-  delete buf;
+    delete this->buf;
 }
 
-void transmisson::clear() {
+void transmisson::clearMonitor() {
     for(int i = 0; i < 16; i++) {
         Serial.println();
     }
 }
 
 String transmisson::getCommend() {
-  return *(this->buf);
+    return *(this->buf);
 }
 
 bool transmisson::compare(String parm, String tar) {
-  for(int i = 0; i < this->check; i++) {
-      if(parm[i] != tar[i]) {
-        return false;
-      }
-  }
-  return true;
+    for(int i = 0; i < this->check; i++) {
+        if(parm[i] != tar[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 ////////////////////////////////////////////////////////////////
 
-transmisson serial;
+SoftwareSerial BT(12, 13);
+transmisson serial(&BT);
+//transmisson serial;
 
 ////////////////////////////////////////////////////////////////
 
@@ -155,31 +216,32 @@ typedef class target {
       Servo moter_wall;
   public:
       target() {
-        mgPin = 0;
-        mwPin = 0;
-        sPin = 0;
-        score = 0;
-        zero = 0;
-        stand = 0;
+          mgPin = 0;
+          mwPin = 0;
+          sPin = 0;
+          score = 0;
+          zero = 0;
+          stand = 0;
+          stat = true;
       }
 // 요구 인자 : 기립제어모터(직립)포트, 기립제어모터포트, 인식센서 포트, 표시led 포트, 과녁점수, 기립(초기)계수, 기립(활성화)계수, 기립(초기)계수, 기립(활성화)계수
-        target(int p_mg, int p_mw, int p_s, int p_l, int num_score, int num_zero, int num_stand, int num_wait, int num_down) {
-        mgPin = p_mg;
-        mwPin = p_mw;
-        sPin =  p_s;
-        lPin = p_l;
-        score = num_score;
-        zero = num_zero;
-        stand = num_stand;
-        wait = num_wait;
-        down = num_down;
-        pinMode(sPin, INPUT);
-        pinMode(lPin, OUTPUT);
-        moter_gnd.attach(mgPin);
-        moter_gnd.write(zero);
-        moter_wall.attach(mwPin);
-        moter_wall.write(wait);
-        stat = false;
+      target(int p_mg, int p_mw, int p_s, int p_l, int num_score, int num_zero, int num_stand, int num_wait, int num_down) {
+          mgPin = p_mg;
+          mwPin = p_mw;
+          sPin =  p_s;
+          lPin = p_l;
+          score = num_score;
+          zero = num_zero;
+          stand = num_stand;
+          wait = num_wait;
+          down = num_down;
+          stat = true;
+          pinMode(sPin, INPUT);
+          pinMode(lPin, OUTPUT);
+          moter_gnd.attach(mgPin);
+          moter_gnd.write(zero);
+          moter_wall.attach(mwPin);
+          moter_wall.write(wait);
       }
       void showInfo();
       void standup();
@@ -202,21 +264,21 @@ typedef class target {
 } target;
 
 void target::showInfo() {
-  if(this->mgPin > 13) {
-    Serial.print("Attached moter port : A"); Serial.println((this->mgPin)-13);
-  }
-  else {
-    Serial.print("Attached moter port : "); Serial.println(this->mgPin);
-  }
-  Serial.print("Attached senser port : "); Serial.println(this->sPin);
-  Serial.print("Registered score : "); Serial.println(this->score);
+    if(this->mgPin > 13) {
+        Serial.print("Attached moter port : A"); Serial.println((this->mgPin)-13);
+    }
+    else {
+        Serial.print("Attached moter port : "); Serial.println(this->mgPin);
+    }
+    Serial.print("Attached senser port : "); Serial.println(this->sPin);
+    Serial.print("Registered score : "); Serial.println(this->score);
 }
 
 void target::standup() {
     this->moter_gnd.write(this->stand);
-    delay(500);
+    delay(300);
     this->moter_gnd.write(this->zero);
-    delay(500);
+    delay(250);
 } 
 
 void target::standown() {
@@ -227,11 +289,11 @@ void target::standown() {
 }
 
 void target::moterActivate_stand() {
-  this->moter_gnd.write(this->stand);
+    this->moter_gnd.write(this->stand);
 }
 
 void target::moterActivate_zero() {
-  this->moter_gnd.write(this->zero);
+    this->moter_gnd.write(this->zero);
 }
 
 void target::moterActivate_down() {
@@ -243,11 +305,11 @@ void target::moterActivate_wait() {
 }
 
 void target::ledOn() {
-	digitalWrite(lPin, HIGH);
+	  digitalWrite(lPin, HIGH);
 }
 
 void target::ledOff() {
-	digitalWrite(lPin, LOW);
+	  digitalWrite(lPin, LOW);
 }
 
 void target::moterSleep() {
@@ -261,24 +323,24 @@ void target::moterWake() {
 }
 
 void target::updateStatus() {
-  if(checking()) {
-      this->stat = false;
-  }
-  else {
-      this->stat = !(this->stat);
-  }
+    if(checking()) {
+        this->stat = false;
+    }
+    else {
+        this->stat = true;
+    }
 }
 
 void target::recordDownTime() {
-  this->downTime = millis();
+    this->downTime = millis();
 }
 
 int target::getDownTime() {
-  return this->downTime;
+    return this->downTime;
 }
 
 int target::getScore() {
-  return this->score;
+    return this->score;
 }
 
 int target::getSenserValue() {
@@ -286,16 +348,16 @@ int target::getSenserValue() {
 }
 
 bool target::getStat() {
-  return this->stat;
+    return this->stat;
 }
 
 bool target::checking() {
-  if(analogRead(this->sPin) <= 340) {  // 과녁 피격 센서 조도센서로 변경함으로인한 인식 코드부 임시변경
-      return true;
-  }
-  else {
-      return false;
-  }
+    if(digitalRead(this->sPin) == LOW) {  // 과녁 피격 센서 조도센서로 변경함으로인한 인식 코드부 임시변경
+        return true;
+    }
+    else {
+        return false;
+    }
 }
 
 ///////////////////////////////////////////////////////////////
@@ -315,6 +377,8 @@ typedef class gameHandler {
           for(int i = 0; i < 10; i++) {
               objArr[i] = NULL;
           }
+          this->busser = bPin;
+          pinMode(this->busser, OUTPUT);
       }
       void showAllInfo();
       void statusMonitor(int index);
@@ -339,11 +403,9 @@ typedef class gameHandler {
 } gameHandler;
 
 void gameHandler::showAllInfo() {
-  for(int i = 0; i < index; i++) {
-      objArr[i]->showInfo();
-  }
-  busser = bPin;
-  pinMode(busser, OUTPUT);
+    for(int i = 0; i < index; i++) {
+        objArr[i]->showInfo();
+    }
 }
 
 void gameHandler::statusMonitor(int index) {
@@ -351,7 +413,7 @@ void gameHandler::statusMonitor(int index) {
         if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
             break;
         }
-        serial.clear();
+        serial.clearMonitor();
         Serial.println("---과녁 계기판---");
         Serial.print("센서값 : "); Serial.println(objArr[index-1]->getSenserValue());
         Serial.print("(VAL1) : "); Serial.println(1023);
@@ -366,35 +428,34 @@ void gameHandler::addTarget() {
 }
 
 void gameHandler::addTarget(int n1, int n2, int n3, int n4, int n5, int n6, int n7, int n8, int n9) {
-  objArr[this->index] = new target(n1, n2, n3, n4, n5, n6, n7, n8, n9);
-  this->index++;
+    objArr[this->index] = new target(n1, n2, n3, n4, n5, n6, n7, n8, n9);
+    this->index++;
 }
 
 void gameHandler::delTarget() {
-	int target = 0;
-	int target_index = 0;
-	String recieve;
+	  int target = 0;
+	  int target_index = 0;
+	  String recieve;
 	
-	if(serial.recieveProcess_waitting()) {  // 이 부분 수정 바람
-		recieve = serial.getCommend();
+	  if(serial.recieveProcess_waitting()) {  // 이 부분 수정 바람
+		    recieve = serial.getCommend();
 		
-		target = recieve.toInt(); 
-		target_index = target - 1;  // 실제 인덱스 넘버
-	}
-	delete objArr[target_index];
-	this->index--;
+		    target = recieve.toInt(); 
+		    target_index = target - 1;  // 실제 인덱스 넘버
+	  }
+	  delete objArr[target_index];
+	  this->index--;
 	
-	for(int i = 0; i < this->index - target; i++) {
-		objArr[target_index+i] = objArr[target_index+i+1];
-	}
-	objArr[this->index-1] = NULL;  // 스왑 마지막 줄에 있던 공간을 비워 오류 제거
+	  for(int i = 0; i < this->index - target; i++) {
+		    objArr[target_index+i] = objArr[target_index+i+1];
+	  }
+	  objArr[this->index-1] = NULL;  // 스왑 마지막 줄에 있던 공간을 비워 오류 제거
 }
 
 void gameHandler::gamemode0() {
     static int i = 0;
     static unsigned int progress = 0;
     static unsigned int p = 0;
-    
     for(;;) {
         if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
             break;
@@ -417,18 +478,18 @@ void gameHandler::gamemode0() {
                     Serial.print(scores[i]); Serial.println("점 흭득!");
                     busserOn();
                     objArr[i]->ledOn();
-                    objArr[i]->updateStatus();
                 }
                 if((progress - objArr[i]->getDownTime()) >= STANDTERM) {  // 2018.07.29 게임진행 최적화 완료
                     objArr[i]->ledOff();
                     objArr[i]->recordDownTime();
-                    objArr[i]->updateStatus();
                     objArr[i]->standup();
                 }
-                if((progress - p) >= 200) {
-                	busserOff();
+                if((progress - p) >= 50) {
+                  busserOff();
+                  p = progress;
                 }
             }
+            objArr[i]->updateStatus();
         }
     }
 }
@@ -441,10 +502,10 @@ void gameHandler::gamemode1() {
     
     for(;;) {
         if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
-          break;
+            break;
         }
         if(checkTimeOver() == true) {
-          break;
+            break;
         }
         for(i = 0; i < this->index; i++) {
             progress = millis();
@@ -472,20 +533,20 @@ void gameHandler::gamemode1() {
 }
 
 void gameHandler::gamemode2() {
-  static int i = 0;
-  static int randomNumTarget = 0;
-  static int randomIndex[NUM_T] = {0, };
-  static int randomTerm[NUM_T] = {0, };
-  static int result = 0;
-  unsigned int c = 0;
-  unsigned int p = 0;
+    static int i = 0;
+    static int randomNumTarget = 0;
+    static int randomIndex[NUM_T] = {0, };
+    static int randomTerm[NUM_T] = {0, };
+    static int result = 0;
+    unsigned int c = 0;
+    unsigned int p = 0;
     
     for(;;) {
         if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
-          break;
+           break;
         }
         if(checkTimeOver() == true) {
-           break;
+            break;
         }
         randomNumTarget = random(1, index+1);
         for(int i = 0; i < randomNumTarget; i++) {
@@ -507,17 +568,17 @@ void gameHandler::gamemode2() {
             if(c - p < 1500) {
                 break;
             }
-        for(int i = 0; i < randomNumTarget; i++) {
-            if(c - p >= randomTerm[i]) {
-              objArr[randomIndex[i]]->standown();
-              randomIndex[i] = 5;  // 모터 뻘짓 방지용 초기화  
+            for(int i = 0; i < randomNumTarget; i++) {
+                if(c - p >= randomTerm[i]) {
+                    objArr[randomIndex[i]]->standown();
+                    randomIndex[i] = 5;  // 모터 뻘짓 방지용 초기화  
+                }
+                else if(objArr[randomIndex[i]]->checking()) {
+                    objArr[randomIndex[i]]->standup();
+                    result += objArr[randomIndex[i]]->getScore();
+                }
             }
-            else if(objArr[randomIndex[i]]->checking()) {
-              objArr[randomIndex[i]]->standup();
-              result += objArr[randomIndex[i]]->getScore();
-          }
         }
-      }
     }
     Serial.print("최종점수는 "); Serial.print(result); Serial.println("점!");
     result = 0;
@@ -525,13 +586,13 @@ void gameHandler::gamemode2() {
 
 void gameHandler::moterAllSleep() {
     for(int i = 0; i < index; i++) {
-      objArr[i]->moterSleep();
+        objArr[i]->moterSleep();
     }
 }
 
 void gameHandler::moterAllWake() {
     for(int i = 0; i < index; i++) {
-      objArr[i]->moterWake();
+        objArr[i]->moterWake();
     }
 }
 
@@ -561,11 +622,11 @@ void gameHandler::downAll() {
 }
 
 void gameHandler::busserOn() {
-	digitalWrite(busser, HIGH);
+	  analogWrite(this->busser, 250);
 }
 
 void gameHandler::busserOff() {
-	digitalWrite(busser, LOW);
+	  analogWrite(this->busser, 0);
 }
 
 void gameHandler::manualMoterControl(int index) {
@@ -617,11 +678,11 @@ bool gameHandler::checkStopCommend() {
     String recieve;
     
     if(serial.recieveProcess_once()) {
-      recieve = serial.getCommend();
+        recieve = serial.getCommend();
 
-      if(serial.compare(recieve, GAMESTOP)) {
-          return true;
-      }
+        if(serial.compare(recieve, GAMESTOP)) {
+            return true;
+        }
     }
     else {  // 이 함수는 명령이 수신됐는지 한번만 확인하면 돼므로 한번만 확인하고 그냥 넘어감 
         return false;
@@ -632,11 +693,11 @@ bool gameHandler::checkManualControl() {
     String recieve;
     
     if(serial.recieveProcess_once()) {
-      recieve = serial.getCommend();
+        recieve = serial.getCommend();
 
-      if(serial.compare(recieve, MANUAL)) {
-          return true;
-      }
+        if(serial.compare(recieve, MANUAL)) {
+            return true;
+        }
     }
     else {  // 이 함수는 명령이 수신됐는지 한번만 확인하면 돼므로 한번만 확인하고 그냥 넘어감 
         return false;
@@ -653,12 +714,18 @@ void setup() {
     Serial.begin(9600);
     
     for(int i = 0; i < NUM_T; i++) {
-      handler.addTarget();
+        handler.addTarget();
     }
     handler.moterAllSleep();
     handler.showAllInfo();
-    handler.moterAllWake();
-    handler.gamemode0();
+    for(int i = 0; i < 3; i++) {
+      handler.busserOn();
+      delay(100);
+      handler.busserOff();
+      delay(100);
+    }
+    /*handler.moterAllWake();
+    handler.gamemode0();*/
 }
 
 void loop() {
@@ -698,7 +765,7 @@ void loop() {
             handler.addTarget();
         }
         else if(serial.compare(recieve, CLEAR)) {
-            serial.clear();
+            serial.clearMonitor();
         }
         else if(serial.compare(recieve, MONITOR)) {
             String tmp;
