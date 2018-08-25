@@ -2,6 +2,7 @@
 #include <Servo.h>              
 #define NUM_T 3  // 과녁수 지정
 #define STANDTERM 3000  // 과녁 기립쿨타임 
+#define BUZZERTERM 50  // 과녁 기립쿨타임 
 using namespace std;
 
 /* 명령어 리스트 
@@ -28,15 +29,15 @@ const String SHOWALLINFO = "showallinfo";
 const String MONITOR = "monitor";
 const String CLEAR = "cls";
 const String MANUAL = "manual";
-const int timeLimit = 10;  // 제한시간(초)
+const int timeLimit = 20;  // 제한시간(초)
 const int bPin = A4;
-const int mgPins[] = {3, 5, 6};
-const int mwPins[] = {9, 10, 11};
-const int sPins[] = {A2, A1, A0};
-const int lPins[] = {4, 7, 8};
+const int mgPins[] = {2, 3, 4};
+const int mwPins[] = {7, 8, 9};
+const int sPins[] = {A0, A1, A2};
+const int lPins[] = {22, 23, 24};
 const int scores[] = {10, 30, 50};
 const int zeros[] = {0, 0, 0};
-const int stands[] = {105, 150, 105};
+const int stands[] = {105, 160, 105};
 const int waits[] = {0, 10, 10};
 const int downs[] = {30, 90, 30};
 
@@ -61,6 +62,7 @@ typedef class transmisson {
             count = 0;
             sender->begin(9600);
         }
+        void sendProcess(int package);
         void clearBuf();
         void clearMonitor();
         String getCommend();
@@ -168,6 +170,16 @@ bool transmisson::recieveProcess_once() {  // 명령 대기 (확인버전)(스�
     return false;
 }
 
+void transmisson::sendProcess(int package) {
+    if(sender == NULL) {
+        Serial.println("No sender!");
+    }
+    else {
+        Serial.println("send complete!");
+        sender->write(package);
+    }
+}
+
 void transmisson::clearBuf() {
     delete this->buf;
 }
@@ -193,9 +205,10 @@ bool transmisson::compare(String parm, String tar) {
 
 ////////////////////////////////////////////////////////////////
 
-SoftwareSerial BT(12, 13);
-transmisson serial(&BT);
-//transmisson serial;
+SoftwareSerial monitor(50, 51);  // 모니터, 프로세싱
+SoftwareSerial BT(52, 53);
+//transmisson serial(&BT);
+transmisson serial;
 
 ////////////////////////////////////////////////////////////////
 
@@ -275,10 +288,10 @@ void target::showInfo() {
 }
 
 void target::standup() {
-    this->moter_gnd.write(this->stand);
-    delay(300);
     this->moter_gnd.write(this->zero);
-    delay(250);
+    delay(500);
+    this->moter_gnd.write(this->stand);
+    delay(500);
 } 
 
 void target::standown() {
@@ -379,6 +392,7 @@ typedef class gameHandler {
           }
           this->busser = bPin;
           pinMode(this->busser, OUTPUT);
+          monitor.begin(9600);
       }
       void showAllInfo();
       void statusMonitor(int index);
@@ -453,11 +467,84 @@ void gameHandler::delTarget() {
 }
 
 void gameHandler::gamemode0() {
-    static int i = 0;
-    static unsigned int progress = 0;
-    static unsigned int p = 0;
+    int i = 0;
+    bool count[3] = {false, };  // 각 과녁별 모터 작동 트리거 상태배열
+    unsigned int secondBuf;  // progress 기준 1초 전 시점 저장변수
+    unsigned int progress = 0;
+    unsigned int p_buser = 0;
+    unsigned int c[NUM_T] = {0, };  // 과녁별 피격시점이후 진행시간 연산배열
+    unsigned int p[NUM_T] = {0, };  // 과녁별 이전 피격시점 저장배열
+
+    monitor.write('S');  // 모니터, 프로세싱에 게임시작을 알림
     for(;;) {
         if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
+            break;
+        }
+        if(checkManualControl() == true) {
+            if(serial.recieveProcess_waitting()) {
+                String recieve;
+
+                manualMoterControl(recieve.toInt());
+            }
+        }
+        for(i = 0; i < this->index; i++) {
+            progress = millis(); 
+            
+            if(objArr[i] == NULL) {  // 해제된 과녁에 접근할시 생기는 오류 처리
+                break;
+            }
+            if(objArr[i]->checking()) {  // 피격여부 확인  
+                if(objArr[i]->getStat()) {
+                    Serial.print(i+1); Serial.println("번째 피격해서");
+                    Serial.print(scores[i]); Serial.println("점 흭득!");
+                    monitor.write('Y');  // 모니터, 프로세싱한테 피격알림
+                    busserOn();
+                    objArr[i]->ledOn();
+                }
+                if((progress - objArr[i]->getDownTime()) >= STANDTERM) { 
+                    objArr[i]->ledOff();
+                    objArr[i]->recordDownTime();
+                    objArr[i]->moterActivate_stand();
+                    count[i] = true;  // 모터 작동 트리거 발동
+                    p[i] = progress;
+                    p_buser = progress;
+                }
+            }
+            if(count[i]) {  // 트리거 확인부
+                c[i] = progress;
+                objArr[i]->recordDownTime();  // 쿨타임 조건부 무효화(모터작동중에는 과녁상태 연산차단)
+                if(c[i] - p[i] >= 500) {  // 모터 작동 500밀리초(과녁을 다세웠을 시점)후 트리거 차단
+                    count[i] = false;
+                    objArr[i]->moterActivate_zero();  // 어차피 3초 쿨타임 때문에 상관X
+                }
+            }
+            if(progress - p_buser >= BUZZERTERM) {  // 부저 울림 차단조건부 
+                busserOff();
+                p_buser = progress;
+            }
+            if(progress - secondBuf >= 1000) {  // 시간 변화 1초 확인부 
+                monitor.write('T');  // 모니터, 프로세싱한테 시간알림
+            }
+            objArr[i]->updateStatus();
+        }
+    }
+}
+
+void gameHandler::gamemode1() {
+    int i = 0;
+    static int result = 0;
+    bool count[3] = {false, };
+    unsigned int progress = 0;
+    unsigned int p_buser = 0;
+    unsigned int c[3] = {0, };
+    unsigned int p[3] = {0, };
+    this->startTime = millis();
+    
+    for(;;) {
+        if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
+            break;
+        }
+        if(checkTimeOver() == true) {
             break;
         }
         if(checkManualControl() == true) {
@@ -476,59 +563,37 @@ void gameHandler::gamemode0() {
                 if(objArr[i]->getStat()) {
                     Serial.print(i+1); Serial.println("번째 피격해서");
                     Serial.print(scores[i]); Serial.println("점 흭득!");
+                    objArr[i]->updateStatus();
+                    result += objArr[i]->getScore();
                     busserOn();
                     objArr[i]->ledOn();
                 }
                 if((progress - objArr[i]->getDownTime()) >= STANDTERM) {  // 2018.07.29 게임진행 최적화 완료
                     objArr[i]->ledOff();
                     objArr[i]->recordDownTime();
-                    objArr[i]->standup();
-                }
-                if((progress - p) >= 50) {
-                  busserOff();
-                  p = progress;
+                    objArr[i]->moterActivate_stand();
+                    count[i] = true;  // 모터 작동 트리거
+                    p[i] = progress;
+                    p_buser = progress;
                 }
             }
+            if(progress - p_buser >= 100) {  // 모터가 과녁 다 세우고 나서 100밀리초 후 발동
+                busserOff();
+                p_buser = progress;
+            }
+            if(count[i]) {
+                    c[i] = progress;
+                    objArr[i]->recordDownTime();  // 쿨타임 조건부 무효화
+                    if(c[i] - p[i] >= 500) {
+                        count[i] = false;
+                        objArr[i]->moterActivate_zero();
+                    }
+                }
             objArr[i]->updateStatus();
         }
     }
-}
-
-void gameHandler::gamemode1() {
-    static int i = 0;
-    static int result = 0;
-    static unsigned int progress = 0;
-    this->startTime = millis();
-    
-    for(;;) {
-        if(checkStopCommend() == true) {  // 커맨더로부터 게임중지 명령 왔는지 확인 
-            break;
-        }
-        if(checkTimeOver() == true) {
-            break;
-        }
-        for(i = 0; i < this->index; i++) {
-            progress = millis();
-
-            if(objArr[i] == NULL) {  // 해제된 과녁에 접근할시 생기는 오류 처리
-                break;
-            }
-            if(objArr[i]->checking()) {  // 피격여부 확인  
-                if(objArr[i]->getStat()) {
-                    Serial.print(i+1); Serial.println("번째 피격해서");
-                    Serial.print(scores[i]); Serial.println("점 흭득!");
-                    objArr[i]->updateStatus();
-                    result += objArr[i]->getScore();
-                }
-                if((progress - objArr[i]->getDownTime()) >= STANDTERM) {
-                  objArr[i]->standup() ;
-                  objArr[i]->recordDownTime();
-                  objArr[i]->updateStatus();
-                }
-            }
-        }
-    }
     Serial.print("최종점수는 "); Serial.print(result); Serial.println("점!");
+    serial.sendProcess(result);
     result = 0;
 }
 
@@ -605,9 +670,6 @@ void gameHandler::standAll() {
         objArr[i]->moterActivate_zero();
     }
     delay(500);
-    /*for(int i = 0; i < index; i++) {
-        objArr[i]->standup();
-    }*/
 }
 
 void gameHandler::downAll() {
@@ -622,7 +684,7 @@ void gameHandler::downAll() {
 }
 
 void gameHandler::busserOn() {
-	  analogWrite(this->busser, 250);
+	  analogWrite(this->busser, 400);
 }
 
 void gameHandler::busserOff() {
@@ -649,6 +711,7 @@ bool gameHandler::checkTimeOver() {
         p = c;
     }
     if(c - (this->startTime) >= timeLimit*1000) {
+        count = timeLimit;
         return true;
     }
     else {
@@ -718,12 +781,12 @@ void setup() {
     }
     handler.moterAllSleep();
     handler.showAllInfo();
-    for(int i = 0; i < 3; i++) {
+    /*for(int i = 0; i < 3; i++) {
       handler.busserOn();
-      delay(100);
+      delay(80);
       handler.busserOff();
-      delay(100);
-    }
+      delay(80);
+    }*/
     /*handler.moterAllWake();
     handler.gamemode0();*/
 }
@@ -785,4 +848,3 @@ void loop() {
     }
     delay(100);
 }
-
